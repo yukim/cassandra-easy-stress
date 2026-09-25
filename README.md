@@ -345,8 +345,9 @@ To test the MCP server integration with Claude Code:
 
 1. Add the MCP server (assuming it's running locally):
    ```bash
-   claude mcp add -t sse cassandra-easy-stress http://localhost:9000/sse
+   claude mcp add -t http cassandra-easy-stress http://localhost:9000/mcp
    ```
+   *(Note: The legacy SSE transport `http://localhost:9000/sse` is deprecated)*
 
 2. Run the MCP integration test prompt:
    ```bash

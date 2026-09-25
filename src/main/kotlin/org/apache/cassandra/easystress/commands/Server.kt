@@ -28,14 +28,15 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
+import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import io.ktor.server.sse.heartbeat
 import io.ktor.sse.ServerSentEvent
-import io.modelcontextprotocol.kotlin.sdk.Implementation
-import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.mcp
+import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.serialization.json.Json
 import org.apache.cassandra.easystress.server.StressTestManager
 import org.apache.cassandra.easystress.server.tools.FieldsTool
@@ -58,7 +59,8 @@ import kotlin.time.Duration.Companion.seconds
  *
  * The server provides:
  * - HTTP endpoint on configurable port (default: 9000)
- * - Server-Sent Events (SSE) for MCP communication
+ * - Streamable HTTP on `/mcp` for MCP communication
+ * - Deprecated SSE transport on `/sse` (and root) for backwards compatibility
  * - JSON-based tool invocation and responses
  * - Thread-safe execution of concurrent tool calls
  *
@@ -151,7 +153,7 @@ class Server : IStressCommand {
      *
      * @return Configured but not yet started embedded server instance
      */
-    private fun getServer(): EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration> {
+    private fun createMcpServer(): Server {
         val server =
             Server(
                 serverInfo =
@@ -174,11 +176,25 @@ class Server : IStressCommand {
             )
 
         // Register all tools with the server
-        server.addTools(
-            tools,
-        )
+        server.addTools(tools)
+        return server
+    }
 
-        return embeddedServer(CIO, port = port) {
+    /**
+     * Creates and configures the embedded Ktor server.
+     *
+     * Configures:
+     * - CIO engine for async I/O
+     * - JSON content negotiation with lenient parsing
+     * - SSE plugin support
+     * - Basic HTTP route for health checks
+     * - Streamable HTTP MCP endpoint on `/mcp`
+     * - Deprecated SSE MCP endpoints on `/sse` and root for backwards compatibility
+     *
+     * @return Configured but not yet started embedded server instance
+     */
+    private fun getServer(): EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration> =
+        embeddedServer(CIO, port = port) {
             install(ContentNegotiation) {
                 json(
                     Json {
@@ -189,21 +205,28 @@ class Server : IStressCommand {
                 )
             }
 
+            // Streamable HTTP on /mcp
+            mcpStreamableHttp(
+                path = "/mcp",
+                sseHeartbeatConfig = {
+                    period = 1.seconds
+                    event = ServerSentEvent("heartbeat")
+                },
+            ) {
+                createMcpServer()
+            }
+
             routing {
                 get("/") {
                     call.respondText("MCP Server is running")
                 }
-            }
 
-            // MCP server configuration with SSE
-            mcp {
-                heartbeat {
-                    period = 1.seconds
-                    event = ServerSentEvent("heartbeat")
+                // Deprecated SSE routes
+                route("/sse") {
+                    mcp {
+                        createMcpServer()
+                    }
                 }
-                // Register all tools
-                server
             }
         }
-    }
 }

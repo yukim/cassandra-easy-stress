@@ -195,16 +195,6 @@ class Server : IStressCommand {
      */
     private fun getServer(): EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration> =
         embeddedServer(CIO, port = port) {
-            install(ContentNegotiation) {
-                json(
-                    Json {
-                        prettyPrint = true
-                        isLenient = true
-                        ignoreUnknownKeys = true
-                    },
-                )
-            }
-
             // Streamable HTTP on /mcp
             mcpStreamableHttp(
                 path = "/mcp",
